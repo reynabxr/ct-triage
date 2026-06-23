@@ -1,6 +1,15 @@
 import { Stethoscope } from "lucide-react";
 import type { ClinicalUrgencyLevel, QueueCaseRecord, QueueEventRecord } from "@/lib/queue-models";
 
+type TimeSensitivity = "LOW" | "MODERATE" | "HIGH" | "CRITICAL";
+
+const sensitivityColor: Record<TimeSensitivity, string> = {
+  CRITICAL: "text-risk-critical bg-risk-critical-soft",
+  HIGH: "text-orange-700 bg-orange-100",
+  MODERATE: "text-amber-700 bg-amber-100",
+  LOW: "text-risk-stable bg-risk-stable/10",
+};
+
 const urgencyColor: Record<ClinicalUrgencyLevel, string> = {
   CRITICAL: "text-risk-critical bg-risk-critical-soft",
   HIGH: "text-orange-700 bg-orange-100",
@@ -30,6 +39,12 @@ export function CaseDetailPanel({
   const moderatorEvent = selectedCaseId
     ? queueEvents.find(
         (e) => e.caseId === selectedCaseId && e.eventType === "moderator_decision",
+      ) ?? null
+    : null;
+
+  const delayHarmEvent = selectedCaseId
+    ? queueEvents.find(
+        (e) => e.caseId === selectedCaseId && e.eventType === "delay_harm_assessment",
       ) ?? null
     : null;
 
@@ -87,6 +102,51 @@ export function CaseDetailPanel({
                 </>
               ) : (
                 <p className="text-xs text-muted-foreground">Review pending…</p>
+              )}
+            </Section>
+
+            <Section title="Delay harm">
+              {delayHarmEvent ? (
+                <>
+                  <TimeSensitivityRow
+                    sensitivity={delayHarmEvent.details.time_sensitivity as TimeSensitivity | undefined}
+                  />
+                  <Row
+                    label="Harm score"
+                    value={
+                      typeof delayHarmEvent.details.delay_harm_score === "number"
+                        ? `${Math.round(delayHarmEvent.details.delay_harm_score * 100)}%`
+                        : "—"
+                    }
+                  />
+                  <Row
+                    label="Scan window"
+                    value={
+                      typeof delayHarmEvent.details.recommended_scan_window === "string"
+                        ? delayHarmEvent.details.recommended_scan_window
+                        : "—"
+                    }
+                  />
+                  <Row
+                    label="Confidence"
+                    value={
+                      typeof delayHarmEvent.details.confidence === "number"
+                        ? `${Math.round(delayHarmEvent.details.confidence * 100)}%`
+                        : "—"
+                    }
+                  />
+                  <Row
+                    label="Reasoning"
+                    value={
+                      typeof delayHarmEvent.details.reasoning_summary === "string"
+                        ? delayHarmEvent.details.reasoning_summary
+                        : "—"
+                    }
+                    multiline
+                  />
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">Delay harm assessment pending…</p>
               )}
             </Section>
 
@@ -167,6 +227,18 @@ function UrgencyRow({ urgency }: { urgency: ClinicalUrgencyLevel | undefined }) 
       <span className="text-[11px] text-muted-foreground shrink-0">Urgency</span>
       <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${urgencyColor[urgency]}`}>
         {urgency}
+      </span>
+    </div>
+  );
+}
+
+function TimeSensitivityRow({ sensitivity }: { sensitivity: TimeSensitivity | undefined }) {
+  if (!sensitivity) return <Row label="Sensitivity" value="—" />;
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[11px] text-muted-foreground shrink-0">Sensitivity</span>
+      <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${sensitivityColor[sensitivity]}`}>
+        {sensitivity}
       </span>
     </div>
   );

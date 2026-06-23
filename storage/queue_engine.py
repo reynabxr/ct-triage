@@ -1283,7 +1283,10 @@ def _ensure_pending_case_record(
             human_due_at = NULL,
             human_decision = NULL,
             human_decision_notes = NULL,
-            human_decided_at = NULL
+            human_decided_at = NULL,
+            dispatch_requested_at = NULL,
+            dispatch_trigger_id = NULL,
+            dispatch_room_id = NULL
         WHERE case_id = ?
         """,
         (

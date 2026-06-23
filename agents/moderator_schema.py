@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .delay_harm_schema import DelayHarmAssessmentMessage
 from .review_schema import ClinicalUrgency
 from .review_schema import ClinicalUrgencyMessage
 from .router_schema import CaseMessage
@@ -74,3 +75,4 @@ class ModeratorInputMessage(BaseModel):
     case: CaseMessage
     clinical_urgency: ClinicalUrgencyMessage
     queue_snapshot: list[QueueContextItem] | None = None
+    delay_harm: DelayHarmAssessmentMessage | None = None

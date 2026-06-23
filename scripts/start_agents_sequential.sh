@@ -18,14 +18,20 @@ python3 -m agents.run_review &
 REVIEW_PID=$!
 sleep 3
 
-# Start moderator (review will send to this)
-echo "3. Starting moderator..."
+# Start delay harm (router will also send to this)
+echo "3. Starting delay harm..."
+python3 -m agents.run_delay_harm &
+DELAY_HARM_PID=$!
+sleep 3
+
+# Start moderator (review and delay harm will send to this)
+echo "4. Starting moderator..."
 python3 -m agents.run_moderator &
 MODERATOR_PID=$!
 sleep 3
 
 # Start escalation
-echo "4. Starting escalation..."
+echo "5. Starting escalation..."
 python3 -m agents.run_escalation &
 ESCALATION_PID=$!
 
@@ -34,4 +40,4 @@ echo "✅ All agents started. Press Ctrl+C to stop all."
 echo ""
 
 # Wait for all processes
-wait $ROUTER_PID $REVIEW_PID $MODERATOR_PID $ESCALATION_PID
+wait $ROUTER_PID $REVIEW_PID $DELAY_HARM_PID $MODERATOR_PID $ESCALATION_PID

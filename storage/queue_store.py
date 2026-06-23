@@ -21,6 +21,9 @@ class CaseRecord:
     final_result: str | None
     created_at: str
     updated_at: str
+    dispatch_requested_at: str | None
+    dispatch_trigger_id: str | None
+    dispatch_room_id: str | None
 
 
 def insert_case(
@@ -76,7 +79,17 @@ def get_next_pending_case(db_path: Path | None = None) -> CaseRecord | None:
     with get_connection(db_path or get_db_path()) as connection:
         row = connection.execute(
             """
-            SELECT case_id, patient_code, status, payload, final_result, created_at, updated_at
+            SELECT
+                case_id,
+                patient_code,
+                status,
+                payload,
+                final_result,
+                created_at,
+                updated_at,
+                dispatch_requested_at,
+                dispatch_trigger_id,
+                dispatch_room_id
             FROM cases
             WHERE status = 'pending'
               AND patient_code IS NOT NULL
@@ -97,13 +110,144 @@ def get_case(case_id: str, db_path: Path | None = None) -> CaseRecord | None:
     with get_connection(db_path or get_db_path()) as connection:
         row = connection.execute(
             """
-            SELECT case_id, patient_code, status, payload, final_result, created_at, updated_at
+            SELECT
+                case_id,
+                patient_code,
+                status,
+                payload,
+                final_result,
+                created_at,
+                updated_at,
+                dispatch_requested_at,
+                dispatch_trigger_id,
+                dispatch_room_id
             FROM cases
             WHERE case_id = ?
             """,
             (case_id,),
         ).fetchone()
     return _row_to_case_record(row)
+
+
+def claim_case_dispatch(
+    case_id: str,
+    *,
+    trigger_id: str,
+    requested_at: str,
+    room_id: str | None = None,
+    db_path: Path | None = None,
+) -> bool:
+    init_db(db_path)
+    with get_connection(db_path or get_db_path()) as connection:
+        result = connection.execute(
+            """
+            UPDATE cases
+            SET dispatch_requested_at = ?,
+                dispatch_trigger_id = ?,
+                dispatch_room_id = ?,
+                updated_at = ?
+            WHERE case_id = ?
+              AND status = 'pending'
+              AND dispatch_requested_at IS NULL
+            """,
+            (
+                requested_at,
+                trigger_id,
+                room_id,
+                requested_at,
+                case_id,
+            ),
+        )
+        connection.commit()
+        return result.rowcount > 0
+
+
+def bind_case_dispatch_room(
+    case_id: str,
+    *,
+    trigger_id: str,
+    room_id: str,
+    db_path: Path | None = None,
+) -> None:
+    init_db(db_path)
+    with get_connection(db_path or get_db_path()) as connection:
+        connection.execute(
+            """
+            UPDATE cases
+            SET dispatch_room_id = ?,
+                updated_at = ?
+            WHERE case_id = ?
+              AND dispatch_trigger_id = ?
+            """,
+            (room_id, _now(), case_id, trigger_id),
+        )
+        connection.commit()
+
+
+def release_case_dispatch_claim(
+    case_id: str,
+    *,
+    trigger_id: str | None = None,
+    db_path: Path | None = None,
+) -> None:
+    init_db(db_path)
+    query = """
+        UPDATE cases
+        SET dispatch_requested_at = NULL,
+            dispatch_trigger_id = NULL,
+            dispatch_room_id = NULL,
+            updated_at = ?
+        WHERE case_id = ?
+    """
+    params: list[Any] = [_now(), case_id]
+    if trigger_id is not None:
+        query += " AND dispatch_trigger_id = ?"
+        params.append(trigger_id)
+    with get_connection(db_path or get_db_path()) as connection:
+        connection.execute(query, tuple(params))
+        connection.commit()
+
+
+def get_shared_room_id(db_path: Path | None = None) -> str | None:
+    init_db(db_path)
+    with get_connection(db_path or get_db_path()) as connection:
+        row = connection.execute(
+            "SELECT shared_room_id FROM queue_state WHERE id = 1"
+        ).fetchone()
+    if row is None:
+        return None
+    value = row["shared_room_id"]
+    if value is None:
+        return None
+    room_id = str(value).strip()
+    return room_id or None
+
+
+def set_shared_room_id(room_id: str, db_path: Path | None = None) -> None:
+    init_db(db_path)
+    with get_connection(db_path or get_db_path()) as connection:
+        connection.execute(
+            """
+            UPDATE queue_state
+            SET shared_room_id = ?
+            WHERE id = 1
+            """,
+            (room_id,),
+        )
+        connection.commit()
+
+
+def clear_shared_room_id(db_path: Path | None = None) -> None:
+    init_db(db_path)
+    with get_connection(db_path or get_db_path()) as connection:
+        connection.execute(
+            """
+            UPDATE queue_state
+            SET shared_room_id = NULL
+            WHERE id = 1
+            """
+        )
+        connection.commit()
 
 
 def mark_routed(case_id: str, db_path: Path | None = None) -> None:
@@ -236,6 +380,36 @@ def log_clinical_urgency(
     logger.info("CLINICAL_URGENCY_LOGGED case_id=%s", case_id)
 
 
+def log_delay_harm_assessment(
+    case_id: str,
+    *,
+    assessment: dict[str, Any],
+    db_path: Path | None = None,
+) -> None:
+    init_db(db_path)
+    with get_connection(db_path or get_db_path()) as connection:
+        connection.execute(
+            """
+            INSERT INTO queue_events (
+                queue_version,
+                event_type,
+                case_id,
+                details,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                None,
+                "delay_harm_assessment",
+                case_id,
+                json.dumps(assessment, sort_keys=True),
+                _now(),
+            ),
+        )
+        connection.commit()
+    logger.info("DELAY_HARM_ASSESSMENT_LOGGED case_id=%s", case_id)
+
+
 def log_human_decision(
     connection: Any,
     *,
@@ -321,6 +495,7 @@ def apply_human_decision(
                     human_decision = ?,
                     human_decision_notes = ?,
                     human_decided_at = ?,
+                    dispatch_requested_at = COALESCE(dispatch_requested_at, ?),
                     updated_at = ?
                 WHERE case_id = ?
                 """,
@@ -330,6 +505,7 @@ def apply_human_decision(
                     "approved",
                     decision,
                     notes,
+                    now,
                     now,
                     now,
                     case_id,
@@ -453,6 +629,7 @@ def expire_human_reviews(
                     human_decision = ?,
                     human_decision_notes = ?,
                     human_decided_at = ?,
+                    dispatch_requested_at = COALESCE(dispatch_requested_at, ?),
                     updated_at = ?
                 WHERE case_id = ?
                 """,
@@ -462,6 +639,7 @@ def expire_human_reviews(
                     "timed_out",
                     "timeout",
                     "Timed out before human response",
+                    now,
                     now,
                     now,
                     case_id,
@@ -485,6 +663,9 @@ def reset_case(case_id: str, db_path: Path | None = None) -> None:
                 queue_version = NULL,
                 start_tick = NULL,
                 completion_tick = NULL,
+                dispatch_requested_at = NULL,
+                dispatch_trigger_id = NULL,
+                dispatch_room_id = NULL,
                 updated_at = ?
             WHERE case_id = ?
             """,
@@ -560,6 +741,7 @@ def _update_escalation(
                 human_decision = NULL,
                 human_decision_notes = NULL,
                 human_decided_at = NULL,
+                dispatch_requested_at = COALESCE(dispatch_requested_at, ?),
                 updated_at = ?
             WHERE case_id = ?
             """,
@@ -568,6 +750,7 @@ def _update_escalation(
                 handoff_packet,
                 human_status,
                 due_at,
+                _now(),
                 _now(),
                 case_id,
             ),
@@ -586,6 +769,9 @@ def _row_to_case_record(row: Any) -> CaseRecord | None:
         final_result=row["final_result"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        dispatch_requested_at=row["dispatch_requested_at"],
+        dispatch_trigger_id=row["dispatch_trigger_id"],
+        dispatch_room_id=row["dispatch_room_id"],
     )
 
 

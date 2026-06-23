@@ -12,7 +12,7 @@ os.environ["SSL_CERT_FILE"] = certifi.where()
 from band import Agent
 from band.config import load_agent_config
 
-from .router_adapter import CTRouterAdapter
+from .delay_harm_adapter import CTDelayHarmAdapter
 from storage.db import get_db_path
 
 logging.basicConfig(level=logging.INFO)
@@ -28,11 +28,10 @@ def _required_env(name: str) -> str:
 
 async def main() -> None:
     load_dotenv()
-    agent_id, api_key = load_agent_config("ct_router_agent")
-    adapter = CTRouterAdapter(
-        router_mention=os.getenv("CT_ROUTER_MENTION", "@ct_router_agent"),
-        review_mention=os.getenv("CT_REVIEW_MENTION", "@ct_review_agent"),
+    agent_id, api_key = load_agent_config("ct_delay_harm_agent")
+    adapter = CTDelayHarmAdapter(
         delay_harm_mention=os.getenv("CT_DELAY_HARM_MENTION", "@ct_delay_harm_agent"),
+        moderator_mention=os.getenv("CT_MODERATOR_MENTION", "@ct_moderator_agent"),
     )
     agent = Agent.create(
         adapter=adapter,
@@ -41,8 +40,8 @@ async def main() -> None:
         ws_url=_required_env("THENVOI_WS_URL"),
         rest_url=_required_env("THENVOI_REST_URL"),
     )
-    logger.info("CT Router Agent using SQLite DB at %s", get_db_path())
-    logger.info("CT Router Agent is running. Press Ctrl+C to stop.")
+    logger.info("CT Delay Harm Agent using SQLite DB at %s", get_db_path())
+    logger.info("CT Delay Harm Agent is running. Press Ctrl+C to stop.")
     await agent.run()
 
 

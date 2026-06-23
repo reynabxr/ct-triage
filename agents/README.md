@@ -2,11 +2,11 @@
 
 This workflow uses SQLite as the queue and case-state store while Band remains the coordination layer.
 
-One Band room represents one CT case. The agents do not call each other directly. Each step posts a structured JSON message back into the same room and updates the SQLite record.
+One long-lived Band room coordinates all CT cases. The agents do not call each other directly. Each step posts a structured JSON message back into the shared room, carries `case_id` in the payload, and updates the SQLite record.
 
 ## Agents
 
-- `ct_dispatcher_agent`: opens the next pending case in a fresh Band room.
+- `ct_dispatcher_agent`: posts the next pending case into the shared Band room.
 - `ct_router_agent`: plain Python agent that loads and normalizes the case, preserves `case_id` and `patient_code`, computes provisional urgency metadata, marks pending cases `routed`, and sends structured `case` JSON to the review agent.
 - `ct_review_agent`: LangGraph agent that reviews the incoming case on its own and emits structured clinical urgency signals, with optional LLM refinement for urgency, confidence, red flags, and the short reasoning summary.
 - `ct_moderator_agent`: LangGraph agent that receives the reviewed case plus clinical urgency result, loads queue context, performs nearby comparisons, and emits a structured moderator decision, with optional LLM ownership of the final placement and escalation choice.
@@ -231,7 +231,7 @@ python3 scripts/seed_one_case.py --row-number 2
 python3 scripts/seed_one_case.py --case-id 13960219002 --force-escalation
 ```
 
-This proof creates a fresh Band room for each queued case it starts. The SQLite `case_id` is carried in the Band message payload, not in the Band `task_id` field. The dispatch script posts the `queue_trigger` automatically from the SQLite queue using a dedicated `ct_dispatcher_agent`, then the four workflow agents handle the rest.
+This proof reuses one persistent Band room for queued cases. The SQLite `case_id` is carried in the Band message payload, not in the Band `task_id` field. The dispatch script posts the `queue_trigger` automatically from the SQLite queue using a dedicated `ct_dispatcher_agent`, then the four workflow agents handle the rest concurrently inside that shared room.
 
 `CT_REVIEW_USE_LLM` can be set to `0` to disable the optional AIML API / DeepSeek review refinement. When credentials are present, the review graph uses the LLM path by default and falls back to the deterministic path if the call fails.
 `CT_MODERATOR_USE_LLM` can be set to `0` to disable the moderator-side LLM placement reasoning. When credentials are present, the moderator graph uses the LLM path by default and falls back to the deterministic path if the call fails.

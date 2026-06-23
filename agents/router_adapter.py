@@ -23,10 +23,12 @@ class CTRouterAdapter(SimpleAdapter[HistoryProvider]):
         *,
         router_mention: str = "@ct_router_agent",
         review_mention: str = "@ct_review_agent",
+        delay_harm_mention: str = "@ct_delay_harm_agent",
     ) -> None:
         super().__init__()
         self.router_mention = router_mention
         self.review_mention = review_mention
+        self.delay_harm_mention = delay_harm_mention
 
     async def on_message(
         self,
@@ -116,8 +118,30 @@ class CTRouterAdapter(SimpleAdapter[HistoryProvider]):
             "ct-review-agent",
             "CT Review Agent",
         )
-        content = f"{review_mention}\n```json\n{model_to_json(case_message)}\n```"
-        await tools.send_message(content=content, mentions=[review_mention])
+        case_json = model_to_json(case_message)
+        await tools.send_message(
+            content=f"{review_mention}\n```json\n{case_json}\n```",
+            mentions=[review_mention],
+        )
+        delay_harm_mention = participant_mention(
+            tools,
+            self.delay_harm_mention,
+            "ct_delay_harm_agent",
+            "ct-delay-harm-agent",
+            "CT Delay Harm Agent",
+        )
+        try:
+            await tools.send_message(
+                content=f"{delay_harm_mention}\n```json\n{case_json}\n```",
+                mentions=[delay_harm_mention],
+            )
+        except ValueError as exc:
+            logger.error(
+                "DELAY_HARM_SEND_FAILED case_id=%s error=%s available=%s",
+                normalized_case.case_id,
+                exc,
+                [getattr(p, "handle", p) for p in tools.participants],
+            )
         if record is not None and record.status == "pending":
             mark_routed(normalized_case.case_id)
         logger.info("CASE_ROUTED case_id=%s", normalized_case.case_id)

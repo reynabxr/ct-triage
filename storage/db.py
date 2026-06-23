@@ -66,6 +66,7 @@ def init_db(db_path: Path | None = None) -> Path:
             )
             """
         )
+        _ensure_queue_state_columns(connection)
         connection.execute(
             """
             INSERT OR IGNORE INTO queue_state (
@@ -110,6 +111,9 @@ def _ensure_case_columns(connection: sqlite3.Connection) -> None:
         ("human_decision", "TEXT"),
         ("human_decision_notes", "TEXT"),
         ("human_decided_at", "TEXT"),
+        ("dispatch_requested_at", "TEXT"),
+        ("dispatch_trigger_id", "TEXT"),
+        ("dispatch_room_id", "TEXT"),
     ]
     for column_name, column_type in required_columns:
         existing_columns = {
@@ -137,4 +141,20 @@ def _ensure_queue_event_columns(connection: sqlite3.Connection) -> None:
             continue
         connection.execute(
             f"ALTER TABLE queue_events ADD COLUMN {column_name} {column_type}"
+        )
+
+
+def _ensure_queue_state_columns(connection: sqlite3.Connection) -> None:
+    required_columns = [
+        ("shared_room_id", "TEXT"),
+    ]
+    existing_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(queue_state)").fetchall()
+    }
+    for column_name, column_type in required_columns:
+        if column_name in existing_columns:
+            continue
+        connection.execute(
+            f"ALTER TABLE queue_state ADD COLUMN {column_name} {column_type}"
         )
